@@ -5,12 +5,12 @@ import fitz  # PyMuPDF
 import requests
 
 
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "AIzaSyBQhoJhC7JpDdiKGHhjz3HP45uoeGDmIHE")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "AIzaSyC5AjzUwUAkIYqjVtUoLA_tumSHK1nJ-Ps")
 OPENROUTER_URL = os.getenv(
     "OPENROUTER_URL",
     "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
 )
-OPENROUTER_OCR_MODEL = os.getenv("OPENROUTER_OCR_MODEL", "gemini-1.5-flash")
+OPENROUTER_OCR_MODEL = os.getenv("OPENROUTER_OCR_MODEL", "gemini-2.5-flash")
 APP_BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:8501")
 APP_TITLE = os.getenv("APP_TITLE", "Smart Document Analyser")
 

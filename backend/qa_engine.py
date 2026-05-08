@@ -2,10 +2,11 @@ import os
 from typing import List, Dict, Any
 import requests
 import re
+import json
 
 # OpenRouter configuration
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "AIzaSyBQhoJhC7JpDdiKGHhjz3HP45uoeGDmIHE")
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "gemini-1.5-flash")
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "AIzaSyC5AjzUwUAkIYqjVtUoLA_tumSHK1nJ-Ps")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "gemini-2.5-flash")
 OPENROUTER_URL = os.getenv(
     "OPENROUTER_URL",
     "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
@@ -28,7 +29,7 @@ def get_model_and_tokenizer():
 def get_best_answer(question: str, chunks: List[str]) -> Dict[str, Any]:
     """
     Find the best answer to a question from the given text chunks.
-    Uses OpenRouter API to extract answers with intelligent context selection.
+    Uses LLM API to extract answers with accurate context processing.
 
     Returns a dictionary with:
     - answer: The extracted answer text
@@ -46,23 +47,28 @@ def get_best_answer(question: str, chunks: List[str]) -> Dict[str, Any]:
 
     url, model_name = get_model_and_tokenizer()
 
-    # Find the most relevant chunks based on keyword matching
-    relevant_chunks = _get_relevant_chunks(question, chunks, top_k=3)
-    
-    # Combine relevant chunks with proper spacing
-    context = "\n\n".join(relevant_chunks['chunks'])
-    best_chunk_index = relevant_chunks['indices'][0] if relevant_chunks['indices'] else -1
-    best_source_text = relevant_chunks['chunks'][0] if relevant_chunks['chunks'] else ""
+    # Pass a large number of chunks as context for Gemini 1.5 Flash
+    max_chunks = 200
+    used_chunks = chunks[:max_chunks]
+    context = "\n\n".join([f"[Chunk {i}]\n{chunk}" for i, chunk in enumerate(used_chunks)])
 
-    # Create a refined prompt for better answers
+    # Create a refined prompt for JSON structured output
     system_prompt = """You are an expert document analyst and question answerer. Your task is to:
-1. Answer questions accurately based ONLY on the provided context
-2. Provide clear, concise, and well-structured answers
-3. If the answer is not explicitly in the context, say "This information is not available in the provided documents."
-4. Always cite which part of the document supports your answer when possible
-5. Format your answer in a clear and easy-to-understand manner"""
+1. Answer questions accurately based ONLY on the provided context chunks.
+2. Provide a well-written, summarized answer in your own words. Do NOT just copy-paste verbatim sentences from the document. Synthesize and summarize the relevant information clearly.
+3. If the answer is not available in the context, explicitly state "This information is not available in the provided documents."
+4. You MUST return your response as a valid JSON object with the exact following structure:
+{
+  "answer": "Your detailed answer here...",
+  "confidence_score": 0.95,
+  "source_chunk_index": 5
+}
+Notes on JSON fields:
+- "answer": String. The actual answer text.
+- "confidence_score": Float between 0.0 and 1.0 representing how confident you are that the answer is correct and supported by the text.
+- "source_chunk_index": Integer. The index of the chunk (e.g., from [Chunk 5]) that provided the answer. Pick the most relevant one. Use -1 if not found."""
 
-    user_prompt = f"""Please answer the following question based on the provided context.
+    user_prompt = f"""Please summarize the answer to the following question based on the provided context.
 
 Context:
 {context}
@@ -70,23 +76,23 @@ Context:
 Question: {question}
 
 Instructions:
-- Provide a direct, clear answer
-- If the answer is in the context, cite it
-- If not found, explicitly state that
-- Keep the answer concise but complete
-- Use bullet points if listing multiple items"""
+- Provide a brief, synthesized summary of the answer.
+- Do NOT simply extract or quote passages directly from the text.
+- Use your own words to explain the answer clearly and concisely."""
 
+    # We need to keep the fallback answer in case API fails
+    relevant_chunks_data = _get_relevant_chunks(question, chunks, top_k=3)
     fallback_answer = _extract_answer_locally(
         question,
-        relevant_chunks["chunks"],
-        relevant_chunks["indices"],
+        relevant_chunks_data["chunks"],
+        relevant_chunks_data["indices"],
     )
 
     try:
         if not OPENROUTER_API_KEY:
             return fallback_answer
 
-        # Make API call to OpenRouter using requests
+        # Make API call to OpenRouter/Gemini using requests
         headers = {
             "Authorization": f"Bearer {OPENROUTER_API_KEY}",
             "Content-Type": "application/json",
@@ -100,41 +106,83 @@ Instructions:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            "max_tokens": 500,
-            "temperature": 0.1
+            "max_tokens": 1000,
+            "temperature": 0.1,
+            "response_format": {"type": "json_object"}
         }
 
         response = requests.post(url, headers=headers, json=data, timeout=60)
-        response.raise_for_status()  # Raise an exception for bad status codes
+        response.raise_for_status()
 
         result = response.json()
         answer_text = result["choices"][0]["message"]["content"].strip()
 
+        # Clean markdown code block formatting if LLM includes it
+        if answer_text.startswith("```json"):
+            answer_text = answer_text[7:]
+            if answer_text.endswith("```"):
+                answer_text = answer_text[:-3]
+        elif answer_text.startswith("```"):
+            answer_text = answer_text[3:]
+            if answer_text.endswith("```"):
+                answer_text = answer_text[:-3]
+        answer_text = answer_text.strip()
+
+        try:
+            json_response = json.loads(answer_text)
+            extracted_answer = json_response.get("answer", "")
+            score = float(json_response.get("confidence_score", 0.0))
+            chunk_index = int(json_response.get("source_chunk_index", -1))
+        except json.JSONDecodeError:
+            # Fallback if model didn't return valid JSON
+            extracted_answer = answer_text
+            score = 0.5
+            chunk_index = -1
+
         # Check if the model couldn't find an answer
         if (
-            "cannot find" in answer_text.lower()
-            or "not available" in answer_text.lower()
-            or "not found" in answer_text.lower()
+            not extracted_answer
+            or "cannot find" in extracted_answer.lower()
+            or "not available" in extracted_answer.lower()
+            or "not found" in extracted_answer.lower()
+            or score < 0.1
         ):
             return fallback_answer
 
-        # Calculate confidence score based on answer length and specificity
-        # Longer, more detailed answers typically have higher confidence
-        score = min(0.95, 0.6 + (len(answer_text.split()) / 100.0))
-        score = max(0.5, score)  # Minimum confidence of 0.5
-
         # Clean up the answer: remove markdown formatting if present
-        answer_text = _clean_answer_text(answer_text)
+        extracted_answer = _clean_answer_text(extracted_answer)
+        
+        # Safely get the source text
+        source_text = ""
+        if 0 <= chunk_index < len(chunks):
+            source_text = chunks[chunk_index]
 
         return {
-            "answer": answer_text,
+            "answer": extracted_answer,
             "score": score,
-            "chunk_index": best_chunk_index,
-            "source_text": best_source_text
+            "chunk_index": chunk_index,
+            "source_text": source_text
         }
 
+    except requests.exceptions.RequestException as e:
+        error_msg = f"API Connection Error: {e}"
+        if hasattr(e, 'response') and e.response is not None:
+            try:
+                error_data = e.response.json()
+                if "error" in error_data and "message" in error_data["error"]:
+                    error_msg = f"API Error: {error_data['error']['message']}"
+            except Exception:
+                error_msg = f"API Error: {e.response.text}"
+        
+        print(error_msg)
+        return {
+            "answer": f"**System Error**: {error_msg}\n\nFalling back to basic local extraction:\n\n{fallback_answer['answer']}",
+            "score": fallback_answer["score"],
+            "chunk_index": fallback_answer["chunk_index"],
+            "source_text": fallback_answer["source_text"]
+        }
     except Exception as e:
-        print(f"Error calling OpenRouter API: {e}")
+        print(f"Error calling LLM API: {e}")
         return fallback_answer
 
 
@@ -269,12 +317,8 @@ def _score_text_match(question_terms: List[str], text: str) -> float:
 
 def _clean_answer_text(text: str) -> str:
     """
-    Clean up answer text by removing markdown formatting and extra whitespace.
+    Clean up answer text but preserve newlines and basic formatting
+    so that summaries and bullet points are readable.
     """
-    # Remove markdown bold/italic markers
-    text = text.replace('**', '').replace('__', '').replace('*', '').replace('_', '')
-    # Remove markdown headers
-    text = re.sub(r'^#+\s+', '', text, flags=re.MULTILINE)
-    # Clean up excessive whitespace
-    text = ' '.join(text.split())
-    return text
+    # Just strip leading/trailing whitespace
+    return text.strip()
