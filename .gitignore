@@ -1,0 +1,101 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE and Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.sublime-project
+.sublime-workspace
+*.DS_Store
+
+# Environment Variables
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+.windows-build-tools/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.hypothesis/
+*.cover
+
+# Logs
+*.log
+logs/
+*.log.*
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+
+# Model and Data files
+backend/model/
+*.safetensors
+*.pth
+*.pkl
+*.joblib
+*.h5
+
+# Cache
+.cache/
+*.cache
+
+# Node (if any JS frontend)
+node_modules/
+npm-debug.log
+
+# Compiled files
+*.class
+*.jar
+
+# VS Code settings (if local)
+.vscode/settings.json
+.vscode/launch.json
+
+# MacOS
+.DS_Store
+.AppleDouble
+.LSOverride

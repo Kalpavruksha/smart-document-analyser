@@ -1,0 +1,32 @@
+services:
+  - type: web
+    name: smart-document-analyser-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: FRONTEND_ORIGIN
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: OPENROUTER_MODEL
+        value: openai/gpt-4o-mini
+      - key: APP_BASE_URL
+        sync: false
+      - key: APP_TITLE
+        value: Smart Document Analyser
+
+  - type: web
+    name: smart-document-analyser-web
+    runtime: python
+    rootDir: frontend
+    buildCommand: pip install -r requirements.txt
+    startCommand: streamlit run app.py --server.address 0.0.0.0 --server.port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: BACKEND_URL
+        sync: false

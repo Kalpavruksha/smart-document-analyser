@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+python-multipart
+PyMuPDF
+streamlit>=1.40.0
+requests
+pydantic
